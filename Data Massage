@@ -1,0 +1,118 @@
+cd "C:\Users\xx\Desktop\xx\Data\"
+
+* Standardised country name
+* You can customize country name by 'kountry' command
+* reference: 
+* 1. https://www.stata.com/support/faqs/data-management/large-datasets/
+* 2. https://journals.sagepub.com/doi/pdf/10.1177/1536867X0800800305
+
+
+// DATA MASSAGE
+********************************************************************************
+* create variables of Findex indicators by crosswalk file
+clear
+input str100 Indicator str20 Varname 
+"Number of deposit accounts with commercial banks per 1,000 adults" "D1_depositAC"
+"Number of ATMs per 100,000 adults" "D2i_ATMadult"
+"Number of commercial bank branches per 100,000 adults" "D2ii_branches"
+"Domestic credit to private sector (% of GDP)" "D3i_credit"
+"Bank deposits to GDP (%)" "D3ii_deposit"
+"Made or received digital payments in the past year (% age 15+)" "D4i_digitalpay"
+"Mobile phone used to pay bills (% age 15+)" "D4ii_phonebill"
+"Used the internet to pay bills or to buy something online in the past year (% age 15+)" "D4iii_online"
+end
+save varname_crosswalk, replace // save the sorted data in memory 
+
+********************************************************************************
+* Stata One to Many (1:m or m:1) merge
+* Reference: https://www.youtube.com/watch?v=2mCKfxDy5dk
+
+merge m:1 Indicator using varname_crosswalk // merging master data & using data
+drop _merge // drop merging indicators
+
+egen item_num = group(Indicator)
+
+reshape long Index_, i(Country item_num) j(Year) // i: identifier j: by year
+reshape wide Index_ Indicator Varname, i(Country Year) j(item_num)
+
+forval x = 1/8{
+gsort Index_`x'
+    local templab = Indicator`x'[1] // there will be numbers of questions
+    label variable Index_`x' "`templab'" // label variable
+    local tempvar = Varname`x'[1] // short names of questions
+    rename Index_`x' `tempvar' //
+    drop Varname`x' Indicator`x'
+}
+
+sort Country
+order Country Year D1_depositAC D2i_ATMadult D2ii_branches D3i_credit D3ii_deposit D4i_digitalpay D4ii_phonebill D4iii_online
+********************************************************************************
+
+
+* D1 - Banking Penetration
+* D2 - The Availability of Banking Services
+* ==================================================================
+* Indicators from IMF FAS:
+* Number of Commercial bank branches per 100,000 adults
+* Number of ATMs per 100,000 adults
+* Number of deposit accounts with commercial banks per 1,000 adults
+* ==================================================================
+
+import excel "C:\Users\xx\Desktop\xx\Data\Financial_Access_Survey_FAS.xlsx", sheet("Financial Access Survey (FAS)") firstrow clear
+rename A Indicator
+rename B Country
+rename C Index_14
+rename D Index_17
+kountry Country, from(iso3c)
+drop Country
+rename NAMES_STD Country
+order Indicator Country Index_14 Index_17
+save "C:\Users\xx\Desktop\xx\Data\D1-D2.dta", replace
+
+* ==================================================================
+* Global Financial Development, WB data
+* D3i : Domestic credit to private sector (% of GDP)
+* D3ii : Bank deposits to GDP (%)
+* D4ii : Paid utility bills: using a mobile phone (% age 15+)
+* ==================================================================
+
+import excel "C:\Users\xx\Desktop\xx\Data\Data_Extract_From_Global_Financial_Development.xlsx", sheet("Data") firstrow clear
+kountry CountryName, from(iso3c) 
+keep SeriesName YR2014 YR2017 NAMES_STD
+rename (SeriesName YR2014 YR2017 NAMES_STD) (Indicator Index_14 Index_17 Country)
+order Indicator Country Index_14 Index_17
+
+save "C:\Users\xx\Desktop\xx\Data\D3i-D3ii-D4ii.dta", replace
+
+* ==================================================================
+* Global Findex Database, WB data
+* D4iii: Used the internet to pay bills or to buy something online in the past year
+* ==================================================================
+
+import delimited "C:\Users\xx\Desktop\xx\data.csv", clear
+kountry countryname, from(iso3c)
+rename (v7 v8 NAMES_STD indicator) (Index_14 Index_17 Country Indicator)
+egen item_num = group(Indicator)
+drop if item_num != 14
+drop indicatorid subindicatortype countryname countryiso3 v6 item_num
+order Indicator Country Index_14 Index_17
+
+save "C:\Users\xx\Desktop\xx\Data\D4iii.dta", replace
+
+* ==================================================================
+* Global Financial Inclusion, WB data
+* D4i : Made or received digital payments in the past year (% age 15+)
+* ==================================================================
+
+import excel "C:\Users\xx\Desktop\xx\Data\D4i_Extract_From_Global_Financial_Inclusion.xlsx", sheet("Data") firstrow clear
+kountry CountryName, from(iso3c) 
+keep SeriesName YR2014 YR2017 NAMES_STD
+rename (SeriesName YR2014 YR2017 NAMES_STD) (Indicator Index_14 Index_17 Country)
+order Indicator Country Index_14 Index_17
+
+save "C:\Users\xx\Desktop\xx\Data\D4i.dta", replace
+
+use D1.dta, clear // append data to according countries
+append using "C:\Users\xx\Desktop\xx\Data\D3i-D3ii-D4ii.dta" "C:\Users\xx\Desktop\xx\Data\D4i.dta" "C:\Users\xx\Desktop\xx\Data\D4iii.dta", force
+
+save "C:\Users\xx\Desktop\xx\Data\emgerged data.dta", replace
